@@ -1,0 +1,182 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Machine Pulse – Predictive Maintenance</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Sora:wght@600;800&family=Public+Sans:wght@400;600&display=swap" rel="stylesheet">
+<style>
+:root{--bg:#ecebf3;--panel:#fff;--ink:#1d1a3a;--mute:#625f80;--line:#d3d1e3;--ok:#16806f;--warn:#cf8e00;--bad:#c23a3a;--ind:#3b2fa0}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--ink);font:16px/1.5 "Public Sans",system-ui,sans-serif}
+h1,h2{font-family:Sora,system-ui,sans-serif;margin:0}
+header{background:var(--ind);color:#fff;padding:30px clamp(16px,4vw,48px)}
+header h1{font-size:clamp(30px,5vw,52px);font-weight:800;line-height:1.05}
+header p{max-width:64ch;margin:10px 0 0;color:#d9d5f5}
+main{padding:20px clamp(16px,4vw,48px) 48px;display:grid;gap:20px;max-width:1280px;margin:auto}
+.kpis{display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:12px}
+.kpi{background:var(--panel);padding:12px 16px;border-bottom:4px solid var(--line)}
+.kpi b{font:800 30px/1.1 Sora,sans-serif;display:block}
+.kpi span{color:var(--mute);font-size:14px}
+.grid{display:grid;grid-template-columns:5fr 6fr;gap:20px}
+@media(max-width:900px){.grid{grid-template-columns:1fr}}
+.panel{background:var(--panel);padding:18px;overflow-x:auto}
+h2{font-size:21px;margin-bottom:10px}
+table{border-collapse:collapse;width:100%;min-width:430px}
+th{text-align:left;font-weight:600;color:var(--mute);font-size:14px;border-bottom:2px solid var(--ink);padding:6px 8px}
+td{padding:8px;border-bottom:1px solid var(--line)}
+tr.row{cursor:pointer}tr.row:hover,tr.sel{background:#f2f1f9}
+tr.row:focus-visible{outline:3px solid var(--ind);outline-offset:-3px}
+.bar{height:9px;background:#e6e4f1;position:relative;min-width:70px}
+.bar i{position:absolute;inset:0 auto 0 0}
+.tag{display:inline-block;padding:1px 8px;font-weight:600;font-size:14px;color:#fff}
+.High{background:var(--bad)}.Medium{background:var(--warn);color:#1d1a3a}.Low{background:var(--ok)}
+.pat{border-left:4px solid var(--bad);background:#fbeeee;padding:8px 12px;margin:10px 0}
+.pat.none{border-color:var(--ok);background:#eaf5f2}
+.act{border-left:4px solid var(--ind);background:#f2f1f9;padding:8px 12px;margin:8px 0}
+.act b{display:block}
+.cost{display:grid;grid-template-columns:repeat(3,1fr);gap:8px;margin:10px 0}
+.cost div{background:#f6f5fb;padding:8px 10px;font-size:14px}.cost b{display:block;font:700 18px Sora,sans-serif}
+label{display:block;font-size:14px;color:var(--mute);margin-top:12px}
+input[type=range]{width:100%;accent-color:var(--ind)}
+button,.file{font:inherit;font-weight:600;background:var(--ind);color:#fff;border:0;padding:8px 14px;cursor:pointer;display:inline-block;margin-right:6px}
+button:focus-visible,.file:focus-within{outline:3px solid var(--warn)}
+.file input{display:none}
+small{color:var(--mute)}
+svg text{font:12px "Public Sans",sans-serif;fill:var(--mute)}
+.sch{display:flex;gap:3px;align-items:flex-end;height:70px;margin-top:6px}
+.sch i{flex:1;background:#b9b5dc;position:relative}
+.sch i.win{background:var(--ind)}.sch i.dead{background:var(--bad)}
+</style>
+</head>
+<body>
+<header>
+  <h1>Machine Pulse</h1>
+  <p>An AI system that reads machine sensor data, maintenance history and production schedules, spots failure patterns early, and picks the cheapest time to fix each machine before it breaks.</p>
+</header>
+<main>
+  <section class="kpis" id="kpis" aria-live="polite"></section>
+  <div class="grid">
+    <section class="panel">
+      <h2>Machine health ranking</h2>
+      <table><thead><tr><th>Machine</th><th>Failure risk (14 days)</th><th>Time left</th><th>Level</th></tr></thead><tbody id="rows"></tbody></table>
+      <small>Select a machine to see the pattern, the plan and the cost.</small>
+    </section>
+    <section class="panel" id="detail"></section>
+  </div>
+  <div class="grid">
+    <section class="panel">
+      <h2>What-if scenario</h2>
+      <label>Production load increase (%): <b id="v1">0</b><input type="range" id="s1" min="0" max="30" value="0"></label>
+      <label>Delay the next service (days): <b id="v2">0</b><input type="range" id="s2" min="0" max="14" value="0"></label>
+      <p><small>Push the factory harder or put maintenance off, and watch the risk and cost change.</small></p>
+    </section>
+    <section class="panel">
+      <h2>Use your own sensor data</h2>
+      <p><small>Upload a CSV with columns: machine, day, vibration, temp (one row per machine per day, latest 14 days used). Machines with the same name update the sample ones; new names are added with default maintenance settings.</small></p>
+      <label class="file" style="color:#fff;margin:0">Upload CSV<input type="file" id="csv" accept=".csv"></label>
+      <button id="reset" type="button">Reset sample data</button>
+    </section>
+  </div>
+  <section class="panel">
+    <h2>How the model works</h2>
+    <p>Eight signals are scaled from 0 to 1: vibration level, vibration trend, temperature level, temperature trend, service overdue ratio, failures in the past year, machine age and upcoming production load. A weighted logistic model turns them into a probability of failure within 14 days. Vibration is projected forward to the alarm limit (7 mm/s) to estimate remaining useful life. Rules read the combination of signals to name the failure pattern, and the planner picks the lowest-load day before the predicted failure for maintenance. Weights are expert-set starting values; with real failure logs they can be fitted with logistic regression, survival analysis or gradient boosting.</p>
+  </section>
+</main>
+<script>
+const LIM=7,BIAS=-3.6,W={vib:1.8,sl:2.0,tmp:1.2,ts:.8,svc:1.3,fail:.8,age:.4,load:.9};
+const NAMES={vib:"Vibration level",sl:"Vibration trend",tmp:"Temperature",ts:"Temperature trend",svc:"Service overdue",fail:"Past failures",age:"Machine age",load:"Production load"};
+const META=[
+{n:"CNC Mill 3",area:"Machining",v0:3.4,vs:.27,t0:68,ts:.9,hrs:540,iv:500,fails:3,age:9,base:82,costHr:90000,dt:14,repair:320000,pm:45000,pmh:4},
+{n:"Press Line 1",area:"Stamping",v0:2.6,vs:.04,t0:74,ts:.2,hrs:430,iv:600,fails:1,age:6,base:75,costHr:150000,dt:10,repair:260000,pm:60000,pmh:5},
+{n:"Packing Robot 2",area:"Packing",v0:1.9,vs:.01,t0:55,ts:0,hrs:180,iv:500,fails:0,age:2,base:70,costHr:60000,dt:5,repair:90000,pm:20000,pmh:2},
+{n:"Compressor A",area:"Utilities",v0:2.8,vs:.03,t0:82,ts:1.1,hrs:620,iv:700,fails:2,age:11,base:90,costHr:110000,dt:12,repair:210000,pm:35000,pmh:4},
+{n:"Conveyor Drive 4",area:"Logistics",v0:2.2,vs:.12,t0:60,ts:.1,hrs:390,iv:450,fails:1,age:5,base:78,costHr:70000,dt:6,repair:120000,pm:25000,pmh:3},
+{n:"Injection Molder 5",area:"Moulding",v0:3.0,vs:.05,t0:78,ts:.3,hrs:300,iv:500,fails:1,age:7,base:72,costHr:100000,dt:9,repair:240000,pm:40000,pmh:4}];
+const cl=x=>Math.max(0,Math.min(1,x));
+function rng(a){return()=>{a|=0;a=a+0x6D2B79F5|0;let t=Math.imul(a^a>>>15,1|a);t=t+Math.imul(t^t>>>7,61|t)^t;return((t^t>>>14)>>>0)/4294967296}}
+function build(){return META.map((m,i)=>{const r=rng(i+7),o={...m,v:[],t:[],load:[]};
+ for(let d=0;d<14;d++){o.v.push(m.v0+m.vs*d+(r()-.5)*.3);o.t.push(m.t0+m.ts*d+(r()-.5)*2)}
+ for(let d=0;d<14;d++){let l=m.base+10*Math.sin((d+i)*.9)+(r()-.5)*6;if((d+i)%7>4)l-=28;o.load.push(Math.round(cl((l-30)/70)*70+30))}
+ return o})}
+let M=build(),sel=0;
+const sc=id=>+document.getElementById(id).value;
+function slope(a){const n=a.length,mx=(n-1)/2,my=a.reduce((x,y)=>x+y)/n;let nu=0,de=0;a.forEach((y,i)=>{nu+=(i-mx)*(y-my);de+=(i-mx)**2});return nu/de}
+function analyse(m){
+ const up=sc("s1"),dfr=sc("s2"),n=m.v.length,vn=m.v.slice(-3).reduce((a,b)=>a+b)/3,tn=m.t.slice(-3).reduce((a,b)=>a+b)/3;
+ const sl=slope(m.v),ts=slope(m.t),load=m.load.map(l=>Math.min(100,l*(1+up/100))),avg=load.reduce((a,b)=>a+b)/load.length;
+ const f={vib:cl((vn-2)/5),sl:cl(sl/.35),tmp:cl((tn-65)/30),ts:cl(ts/1.5),svc:cl((((m.hrs+dfr*16)/m.iv)-.7)/.6),fail:cl(m.fails/4),age:cl(m.age/15),load:cl((avg-70)/30)};
+ let z=BIAS;const c={};for(const k in W){c[k]=W[k]*f[k];z+=c[k]}
+ const p=1/(1+Math.exp(-z)),rul=sl>.02?Math.max(0,(LIM-vn)/sl):Infinity,level=p>.6?"High":p>.3?"Medium":"Low";
+ let pat;
+ if(f.sl>.4&&f.ts>.3)pat=["Bearing wear signature","Vibration and temperature are both climbing together, the typical early pattern of a wearing bearing."];
+ else if(f.tmp>.5)pat=["Overheating or lubrication loss","Temperature is high without a matching vibration rise. Check lubrication and cooling."];
+ else if(f.svc>.4)pat=["Service overdue","Running hours have passed the service interval. Wear is likely building up unseen."];
+ else if(f.vib>.5)pat=["Imbalance or misalignment","Vibration level is high but steady. Look for loose mounts or shaft misalignment."];
+ else if(f.load>.5&&f.tmp>.25)pat=["Overload stress","High production load is pushing temperatures up."];
+ const horizon=Math.max(0,Math.min(13,Math.floor((isFinite(rul)?rul:14)-1)));
+ let day=0;for(let d=0;d<=horizon;d++)if(load[d]<load[day])day=d;
+ const exp=p*(m.dt*m.costHr+m.repair),pm=m.pmh*m.costHr*load[day]/100+m.pm;
+ return{p,c,f,level,rul,vn,sl,pat,day,load,horizon,exp,pm,save:Math.max(0,exp-pm)};
+}
+const inr=x=>"₹"+(Math.round(x/1000)/100).toFixed(2)+" L";
+const col=l=>({High:"var(--bad)",Medium:"var(--warn)",Low:"var(--ok)"}[l]);
+function spark(m,a){
+ const W=520,H=150,L=34,pts=m.v,n=pts.length,fut=Math.min(14,isFinite(a.rul)?Math.ceil(a.rul)+1:6),tot=n+fut,mx=Math.max(LIM+1,...pts)+.5;
+ const X=i=>L+i/(tot-1)*(W-L-6),Y=v=>H-18-(v/mx)*(H-30);
+ let s=`<svg viewBox="0 0 ${W} ${H}" width="100%" role="img" aria-label="Vibration history and projection for ${m.n}">`;
+ s+=`<line x1="${L}" x2="${W-6}" y1="${Y(LIM)}" y2="${Y(LIM)}" stroke="#c23a3a" stroke-dasharray="4 3"/><text x="${L+4}" y="${Y(LIM)-4}">Alarm limit ${LIM} mm/s</text>`;
+ s+=`<polyline fill="none" stroke="#3b2fa0" stroke-width="2.5" points="${pts.map((v,i)=>X(i)+","+Y(v)).join(" ")}"/>`;
+ const last=pts.slice(-3).reduce((x,y)=>x+y)/3;
+ s+=`<polyline fill="none" stroke="#3b2fa0" stroke-width="2" stroke-dasharray="5 4" points="${X(n-1)},${Y(last)} ${X(tot-1)},${Y(Math.min(mx,last+a.sl*fut))}"/>`;
+ s+=`<text x="${L}" y="${H-3}">14 days of history</text><text x="${W-100}" y="${H-3}">projection</text></svg>`;
+ return s;
+}
+function render(){
+ const r=M.map((m,i)=>({m,i,a:analyse(m)})).sort((a,b)=>b.a.p-a.a.p);
+ if(!r.find(x=>x.i==sel))sel=r[0].i;
+ const risk=r.filter(x=>x.a.level!="Low").length,soon=r.filter(x=>x.a.rul<=14).length,sav=r.filter(x=>x.a.level!="Low").reduce((s,x)=>s+x.a.save,0);
+ document.getElementById("kpis").innerHTML=[["Machines monitored",M.length,"var(--line)"],["Medium or high risk",risk,"var(--warn)"],["Predicted to hit alarm limit within 14 days",soon,"var(--bad)"],["Cost avoided by acting now",inr(sav),"var(--ok)"]].map(k=>`<div class="kpi" style="border-color:${k[2]}"><b>${k[1]}</b><span>${k[0]}</span></div>`).join("");
+ document.getElementById("rows").innerHTML=r.map(x=>`<tr class="row ${x.i==sel?"sel":""}" tabindex="0" data-i="${x.i}"><td><b>${x.m.n}</b><br><small>${x.m.area}</small></td><td><div class="bar"><i style="width:${x.a.p*100}%;background:${col(x.a.level)}"></i></div>${Math.round(x.a.p*100)}%</td><td>${isFinite(x.a.rul)?x.a.rul.toFixed(1)+" d":"Stable"}</td><td><span class="tag ${x.a.level}">${x.a.level}</span></td></tr>`).join("");
+ document.querySelectorAll("tr.row").forEach(t=>{const go=()=>{sel=+t.dataset.i;render()};t.onclick=go;t.onkeydown=e=>{if(e.key=="Enter"||e.key==" "){e.preventDefault();go()}}});
+ const d=r.find(x=>x.i==sel),m=d.m,a=d.a,top=Object.entries(a.c).sort((x,y)=>y[1]-x[1]);
+ const acts=[];
+ if(a.level=="Low")acts.push(["Keep routine schedule","No failure pattern found. Service at the next planned stop."]);
+ else{
+  acts.push([`Service on day +${a.day} (production load ${Math.round(a.load[a.day])}%)`,`Lowest-load day before the predicted failure. Planned work takes about ${m.pmh} hours.`]);
+  if(a.f.sl>.4||a.f.vib>.5)acts.push(["Inspect bearings, mounts and alignment","Vibration is the strongest early signal. Replace worn parts during the stop."]);
+  if(a.f.tmp>.4||a.f.ts>.3)acts.push(["Check lubrication and cooling","Temperature is rising. Top up or replace lubricant and clean cooling paths."]);
+  if(a.f.svc>.4)acts.push(["Complete the overdue service","Running hours are beyond the service interval."]);
+  if(a.f.load>.5)acts.push(["Rebalance production load","Move some orders to a less loaded machine until service is done."]);
+ }
+ const sch=a.load.map((l,i)=>`<i class="${i==a.day&&a.level!="Low"?"win":i>a.horizon+1&&isFinite(a.rul)&&i>=a.rul?"dead":""}" style="height:${l*.7}px" title="Day +${i}: ${Math.round(l)}% load"></i>`).join("");
+ document.getElementById("detail").innerHTML=`<h2>${m.n}: ${Math.round(a.p*100)}% chance of failure in 14 days</h2>`+spark(m,a)+
+ `<div class="pat ${a.pat?"":"none"}"><b>${a.pat?a.pat[0]:"No abnormal pattern"}</b>${a.pat?a.pat[1]:"Sensors are inside normal ranges and trends are flat."}</div>`+
+ `<p style="margin:8px 0 0"><b>Main risk drivers:</b> ${top.slice(0,3).map(t=>NAMES[t[0]]).join(", ")}. Last service ${m.hrs} running hours ago (interval ${m.iv}); ${m.fails} failure${m.fails==1?"":"s"} in the past year.</p>`+
+ `<p style="margin:12px 0 0"><b>Recommended actions</b></p>`+acts.map(x=>`<div class="act"><b>${x[0]}</b>${x[1]}</div>`).join("")+
+ `<div class="cost"><div><b>${inr(a.exp)}</b>Expected cost if it fails</div><div><b>${inr(a.pm)}</b>Planned maintenance cost</div><div><b>${inr(a.save)}</b>Expected saving</div></div>`+
+ `<small>Next 14 days of production load. The dark bar is the suggested maintenance day.</small><div class="sch">${sch}</div>`;
+}
+["s1","s2"].forEach((id,n)=>document.getElementById(id).oninput=e=>{document.getElementById("v"+(n+1)).textContent=e.target.value;render()});
+document.getElementById("reset").onclick=()=>{M=build();sel=0;render()};
+document.getElementById("csv").onchange=e=>{
+ const f=e.target.files[0];if(!f)return;
+ f.text().then(t=>{
+  const L=t.trim().split(/\r?\n/),h=L[0].split(",").map(x=>x.trim().toLowerCase());
+  const ix=k=>h.indexOf(k);
+  if(["machine","vibration","temp"].some(k=>ix(k)<0)){alert("CSV not read. Include columns: machine, day, vibration, temp.");return}
+  const g={};L.slice(1).forEach((l,k)=>{const v=l.split(",");const n=(v[ix("machine")]||"").trim();if(!n)return;(g[n]=g[n]||[]).push({d:ix("day")>=0?+v[ix("day")]:k,v:+v[ix("vibration")],t:+v[ix("temp")]})});
+  let used=0;
+  for(const n in g){const rows=g[n].filter(x=>!isNaN(x.v)&&!isNaN(x.t)).sort((a,b)=>a.d-b.d).slice(-14);if(rows.length<4)continue;used++;
+   let m=M.find(x=>x.n.toLowerCase()==n.toLowerCase());
+   if(!m){m={n,area:"Imported",hrs:400,iv:500,fails:0,age:5,base:75,costHr:80000,dt:8,repair:150000,pm:30000,pmh:3,v:[],t:[],load:Array.from({length:14},(_,i)=>(i%7>4?50:75))};M.push(m)}
+   m.v=rows.map(x=>x.v);m.t=rows.map(x=>x.t)}
+  if(!used){alert("No machine had at least 4 valid rows.");return}
+  render();
+ });
+};
+render();
+</script>
+</body>
+</html>
